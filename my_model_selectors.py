@@ -77,7 +77,34 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_score=float("+Inf")
+        model_scores = []
+        model_lengths = range(self.min_n_components, self.max_n_components)
+        for num_states in model_lengths:
+            try:
+                model = self.base_model(num_states)
+                score = model.score(self.X, self.lengths)
+
+                # BIC = -2*logL + plogN
+                # p - number of parameters
+                # N - number of datapoints
+
+                # number of parameters can be computed from
+                p = num_states * num_states + 2*num_states*len(self.X[0])-1
+                N = len(self.X)
+
+                BIC = -2 * score + p*math.log(N)
+                model_scores.append(BIC)
+
+            except:
+        #        print("Not training for model_length={}".format(num_states))
+                model_scores.append(float("+Inf"))
+
+        #print(model_scores)
+        if(len(model_scores)):
+            #print("best model {} ".format(np.argmax(model_scores)))
+            return self.base_model(model_lengths[np.argmin(model_scores)])
+
 
 
 class SelectorDIC(ModelSelector):
@@ -92,9 +119,31 @@ class SelectorDIC(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        word_scores = dict()
+        num_states=6
+        model_scores = []
+        model_lengths = range(self.min_n_components, self.max_n_components)
+        for num_states in model_lengths:
+            total_score = 0
+            model = self.base_model(num_states)
+            for word in self.words:
+                X, lengths = self.hwords[word]
+                try:
+                    word_scores[word] = model.score(X, lengths)
+                    if self.this_word != word:
+                        total_score = total_score + word_scores[word]
+                except:
+                    word_scores[word] = float("-Inf")
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+            #print(word_scores)
+            #print(word_scores[self.this_word])
+            avg_score_all_words = total_score / (len(self.words)-1)
+            delta_score = word_scores[self.this_word] - avg_score_all_words
+            model_scores.append(delta_score)
+        if(len(model_scores)):
+            #print("best model {} ".format(np.argmax(model_scores)))
+            return self.base_model(model_lengths[np.argmax(model_scores)])
+        #print(avg_score_all_words)
 
 
 class SelectorCV(ModelSelector):
@@ -104,6 +153,54 @@ class SelectorCV(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        import asl_utils
+        import numpy as np
+        from sklearn.model_selection import KFold
+        n_splits=3
+        split_method = KFold()
+        best_score=float("+Inf")
+        model_scores = []
+        model_lengths = range(self.min_n_components, self.max_n_components)
+
+        for num_states in model_lengths:
+            # Used to calculate the average LL across the folds
+            number_of_splits = 0
+            sum_of_scores = 0
+
+            if(len(self.sequences) < n_splits):
+                break
+
+            for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                    number_of_splits = number_of_splits+1
+                    #print("Train fold indices:{} Test fold indices:{}".format(cv_train_idx, cv_test_idx))  # view indices of the folds
+                    #try:
+                    X,lengths = combine_sequences(cv_train_idx, self.sequences)
+                    train_x, train_lengths = combine_sequences(cv_test_idx,self.sequences)
+                    self.X = X
+                    self.lengths = lengths
+                    model = self.base_model(num_states)
+                    #print(train_x)
+                    try:
+                        score = model.score(train_x, train_lengths)
+                    except:
+                        score = 0
+                    #print(score)
+                    sum_of_scores = sum_of_scores + score
+                    #except:
+                    #    print("Model not training for {}".format(cv_train_idx))
+
+            avg_score = sum_of_scores / number_of_splits
+
+            model_scores.append( avg_score)
+
+        #    print(avg_score)
+        #    print(model_scores)
+
+
+        #print(model_scores)
+        if(len(model_scores)):
+        #    print("best model {} ".format(np.argmax(model_scores)))
+            return self.base_model(model_lengths[np.argmax(model_scores)])
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        return self.base_model(3)
